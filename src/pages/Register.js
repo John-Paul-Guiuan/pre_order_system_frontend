@@ -8,6 +8,8 @@ import toast from "react-hot-toast";
 export default function Register() {
   const [form, setForm] = useState({
     name: "",
+    phone: "",
+    address: "",
     email: "",
     password: "",
     password_confirmation: "",
@@ -70,6 +72,30 @@ export default function Register() {
               type="text"
               name="name"
               value={form.name}
+              onChange={handleChange}
+              required
+              className="w-full border rounded-lg px-3 py-2 mt-1 focus:ring-2 focus:ring-pink-400 outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-600">Phone Number</label>
+            <input
+              type="text"
+              name="phone"
+              value={form.phone}
+              onChange={handleChange}
+              required
+              className="w-full border rounded-lg px-3 py-2 mt-1 focus:ring-2 focus:ring-pink-400 outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-600">Address</label>
+            <input
+              type="text"
+              name="address"
+              value={form.address}
               onChange={handleChange}
               required
               className="w-full border rounded-lg px-3 py-2 mt-1 focus:ring-2 focus:ring-pink-400 outline-none"

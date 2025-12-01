@@ -4,35 +4,62 @@ import api from "../api/api";
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [user, setUserState] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Load user from localStorage on start
+  // 🔥 Central function to set user everywhere (state + localStorage)
+  const updateUser = (updatedUser) => {
+    if (!updatedUser) return;
+    localStorage.setItem("user", JSON.stringify(updatedUser));
+    setUserState(updatedUser);
+  };
+
+  // -------------------------------------------------------
+  //  LOAD USER FROM STORAGE ON APP START
+  // -------------------------------------------------------
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    const token = localStorage.getItem("token");
-    if (storedUser && token) {
-      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      setUser(JSON.parse(storedUser));
+    try {
+      const storedUser = localStorage.getItem("user");
+      const token = localStorage.getItem("token");
+
+      if (storedUser && token) {
+        api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+        // validate JSON
+        const parsedUser = JSON.parse(storedUser);
+        setUserState(parsedUser);
+      }
+    } catch (err) {
+      console.warn("Corrupted localStorage user:", err);
+      localStorage.removeItem("user");
+      localStorage.removeItem("token");
     }
+
     setLoading(false);
   }, []);
 
-  // ✅ Login function
+  // -------------------------------------------------------
+  //  LOGIN
+  // -------------------------------------------------------
   async function login(email, password) {
     const response = await api.post("/login", { email, password });
+
     const { user, token } = response.data;
 
-    // Save to localStorage
-    localStorage.setItem("user", JSON.stringify(user));
     localStorage.setItem("token", token);
+    localStorage.setItem("user", JSON.stringify(user));
 
-    // Set axios header and update React state immediately
     api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-    setUser(user); // 🔥 triggers UI re-render right away
+
+    // 🔥 Update global user immediately
+    setUserState(user);
+
+    return user;
   }
 
-  // ✅ Improved Logout function (always clears state)
+  // -------------------------------------------------------
+  //  LOGOUT
+  // -------------------------------------------------------
   async function logout() {
     try {
       await api.post("/logout");
@@ -42,18 +69,23 @@ export function AuthProvider({ children }) {
       localStorage.removeItem("user");
       localStorage.removeItem("token");
       delete api.defaults.headers.common["Authorization"];
-      setUser(null);
+      setUserState(null);
     }
   }
 
-  // ✅ Update user function to sync with localStorage
-  const updateUser = (updatedUser) => {
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    setUser(updatedUser);
-  };
-
+  // -------------------------------------------------------
+  //  PUBLIC CONTEXT VALUE
+  // -------------------------------------------------------
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, setUser: updateUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        setUser: updateUser,  // 🔥 always use updateUser (sync everywhere)
+        login,
+        logout,
+        loading,
+      }}
+    >
       {!loading && children}
     </AuthContext.Provider>
   );

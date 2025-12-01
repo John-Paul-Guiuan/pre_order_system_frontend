@@ -1,17 +1,22 @@
+// src/pages/Profile.js
 import React, { useState, useEffect, useRef } from "react";
 import axios from "../api/api";
 import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
 
 export default function Profile() {
+  const { user, setUser } = useAuth(); // useAuth must provide setUser (updateUser)
+  const fileInputRef = useRef(null);
+
   const [form, setForm] = useState({
     name: "",
     phone: "",
     address: "",
     image: null,
   });
-
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
+
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordData, setPasswordData] = useState({
     oldPassword: "",
@@ -19,151 +24,193 @@ export default function Profile() {
     confirmPassword: "",
   });
   const [passwordLoading, setPasswordLoading] = useState(false);
-  const fileInputRef = useRef(null);
 
-  // 🧠 Load profile on mount
+  // load profile from context user (or fallback to API)
   useEffect(() => {
-    const fetchProfile = async () => {
+    if (user) {
+      setForm({
+        name: user.name || "",
+        phone: user.phone || "",
+        address: user.address || "",
+        image: null,
+      });
+      setPreview(user.image_url || null);
+      return;
+    }
+
+    // fallback: try to fetch user from API (if context not populated)
+    const fetchUser = async () => {
       try {
         const token = localStorage.getItem("token");
+        if (!token) return;
         const res = await axios.get("/user", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const { name, phone, address, image_url } = res.data.user || res.data;
-        setForm({ name, phone, address, image: null });
-        setPreview(image_url || null);
-      } catch (error) {
-        console.error("Failed to load profile:", error);
+        const u = res.data.user || res.data;
+        setForm({
+          name: u.name || "",
+          phone: u.phone || "",
+          address: u.address || "",
+          image: null,
+        });
+        setPreview(u.image_url || null);
+      } catch (err) {
+        // ignore - user might not be logged in
+        console.warn("Could not fetch user:", err?.response?.data || err);
       }
     };
-    fetchProfile();
-  }, []);
+    fetchUser();
+  }, [user]);
 
-  // 📋 Handle input change
+  // input handler (handles file inputs too)
   const handleChange = (e) => {
     const { name, value, files } = e.target;
-    if (files) {
-      setForm((prev) => ({ ...prev, [name]: files[0] }));
-      setPreview(URL.createObjectURL(files[0]));
+    if (files && files[0]) {
+      const file = files[0];
+      // validation client-side (optional)
+      if (!file.type.startsWith("image/")) {
+        toast.error("Please select an image file (jpg, png).");
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image must be smaller than 5MB.");
+        return;
+      }
+      setForm((p) => ({ ...p, image: file }));
+      setPreview(URL.createObjectURL(file));
     } else {
-      setForm((prev) => ({ ...prev, [name]: value }));
+      setForm((p) => ({ ...p, [name]: value }));
     }
   };
 
   const handleImageClick = () => fileInputRef.current?.click();
 
-  // 💾 Handle update
+  // debug helper to log FormData contents (for dev only)
+  const logFormData = (fd) => {
+    try {
+      const entries = [];
+      // eslint-disable-next-line no-unused-vars
+      for (const pair of fd.entries()) {
+        // pair could be File; for File show file name
+        entries.push(
+          `${pair[0]} => ${
+            pair[1] instanceof File ? `[File:${pair[1].name}]` : pair[1]
+          }`
+        );
+      }
+      console.log("FormData entries:", entries);
+    } catch (e) {
+      console.log("Could not read FormData entries (browser limitation)", e);
+    }
+  };
+
+  // save profile
   const handleUpdate = async (e) => {
     e.preventDefault();
-    setLoading(true);
 
-    if (!form.name.trim()) {
-      toast.error("Name is required");
-      setLoading(false);
+    if (!form.name || !form.name.trim()) {
+      toast.error("Name is required.");
       return;
     }
 
+    setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("name", form.name);
-      formData.append("phone", form.phone);
-      formData.append("address", form.address);
-      if (form.image) formData.append("image", form.image);
+      const fd = new FormData();
+      fd.append("name", form.name);
+      fd.append("phone", form.phone || "");
+      fd.append("address", form.address || "");
+      if (form.image) fd.append("image", form.image);
 
-      const res = await axios.put(
-        "http://127.0.0.1:8000/api/profile/update",
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-          },
-        }
-      );
+      // debug: log what will be sent
+      logFormData(fd);
+
+      // IMPORTANT: do NOT set Content-Type manually when sending FormData.
+      // Let browser set `Content-Type: multipart/form-data; boundary=...`
+      const res = await axios.put("/profile/update", fd, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          // DO NOT set "Content-Type": "multipart/form-data" here
+        },
+      });
 
       toast.success("✅ Profile updated successfully!");
-      console.log("Updated profile:", res.data);
-    } catch (error) {
-      console.error("Full error response:", error.response);
-      if (error.response?.data?.errors) {
-        const errors = Object.values(error.response.data.errors).flat().join(", ");
-        toast.error(errors);
+
+      // Update global user object (so navbar/initials update immediately)
+      if (res?.data?.user) {
+        setUser(res.data.user);
+      }
+
+      // reset file input state
+      setForm((prev) => ({ ...prev, image: null }));
+    } catch (err) {
+      console.error("Profile update error (full):", err?.response || err);
+      const resp = err?.response?.data;
+      if (resp?.errors) {
+        const messages = Object.values(resp.errors).flat().join("\n");
+        toast.error(messages);
+      } else if (resp?.message) {
+        toast.error(resp.message);
       } else {
-        toast.error("Something went wrong updating profile.");
+        toast.error("Failed to update profile. Try again.");
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // 🔑 Password logic
+  // password handlers (unchanged)
   const handlePasswordChange = (e) =>
     setPasswordData({ ...passwordData, [e.target.name]: e.target.value });
 
   const handlePasswordUpdate = async (e) => {
     e.preventDefault();
-
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       toast.error("New passwords do not match");
       return;
     }
-
     if (passwordData.newPassword.length < 6) {
       toast.error("Password must be at least 6 characters");
       return;
     }
-
     setPasswordLoading(true);
     try {
       const token = localStorage.getItem("token");
       await axios.put(
-        "http://127.0.0.1:8000/api/profile/change-password",
+        "/profile/change-password",
         {
           old_password: passwordData.oldPassword,
           new_password: passwordData.newPassword,
         },
-        {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-        }
+        { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
       );
       toast.success("Password changed successfully!");
       setShowPasswordModal(false);
       setPasswordData({ oldPassword: "", newPassword: "", confirmPassword: "" });
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to change password.");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to change password.");
     } finally {
       setPasswordLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-100 via-rose-50 to-orange-50 py-10 px-4 flex justify-center items-center">
-      <div className="bg-white shadow-2xl rounded-3xl p-8 w-full max-w-2xl border border-pink-100 relative">
-        {/* Header */}
-        <div className="absolute inset-x-0 top-0 h-2 bg-gradient-to-r from-pink-400 via-rose-300 to-orange-300"></div>
-        <h1 className="text-4xl font-extrabold text-pink-600 text-center mb-6 drop-shadow-sm">
-          My Sweet Profile 🍰
-        </h1>
+    <div className="min-h-screen bg-pink-50 py-8 px-4">
+      <div className="bg-white shadow-lg rounded-2xl p-6 sm:p-8 w-full max-w-2xl mx-auto">
+        <h1 className="text-3xl font-bold text-pink-600 mb-6 text-center">My Profile</h1>
 
-        {/* Profile Picture */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-6">
           <div
             onClick={handleImageClick}
-            className="relative w-36 h-36 rounded-full overflow-hidden border-4 border-pink-300 shadow-md cursor-pointer group"
+            className="relative w-32 h-32 rounded-full bg-pink-100 border-4 border-pink-200 flex items-center justify-center cursor-pointer overflow-hidden"
           >
             {preview ? (
-              <img
-                src={preview}
-                alt="Profile"
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              />
+              <img src={preview} alt="Profile" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-5xl text-pink-300 group-hover:text-pink-500 transition-all duration-300">
-                👤
-              </div>
+              <div className="text-pink-400 text-4xl">👤</div>
             )}
-            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 flex justify-center items-center text-white text-sm font-medium opacity-0 group-hover:opacity-100 transition-all duration-300">
+            <div className="absolute inset-0 flex items-end justify-center pb-2 pointer-events-none text-sm text-white opacity-0 group-hover:opacity-100">
               📷 Change
             </div>
           </div>
@@ -171,120 +218,99 @@ export default function Profile() {
             ref={fileInputRef}
             type="file"
             accept="image/*"
-            name="image"
+            name="image"                 // IMPORTANT: name must be "image"
             onChange={handleChange}
             className="hidden"
           />
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleUpdate} className="space-y-5">
+        <form onSubmit={handleUpdate} className="space-y-4">
           <div>
-            <label className="block text-gray-600 font-semibold mb-1">Full Name</label>
+            <label className="block text-sm text-gray-600">Full Name</label>
             <input
-              type="text"
               name="name"
               value={form.name}
               onChange={handleChange}
-              className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-pink-400 outline-none shadow-sm"
-              placeholder="Enter your full name"
+              className="w-full border rounded-lg px-3 py-2"
               required
             />
           </div>
 
           <div>
-            <label className="block text-gray-600 font-semibold mb-1">Phone</label>
+            <label className="block text-sm text-gray-600">Phone</label>
             <input
-              type="text"
               name="phone"
               value={form.phone}
               onChange={handleChange}
-              className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-pink-400 outline-none shadow-sm"
-              placeholder="Enter your phone number"
+              className="w-full border rounded-lg px-3 py-2"
             />
           </div>
 
           <div>
-            <label className="block text-gray-600 font-semibold mb-1">Address</label>
+            <label className="block text-sm text-gray-600">Address</label>
             <textarea
               name="address"
               value={form.address}
               onChange={handleChange}
-              className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-pink-400 outline-none shadow-sm resize-none"
-              placeholder="Enter your address"
-            ></textarea>
+              className="w-full border rounded-lg px-3 py-2"
+            />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-gradient-to-r from-pink-500 to-rose-400 text-white rounded-xl py-2.5 font-semibold shadow-md hover:shadow-lg transform hover:scale-[1.02] transition-all duration-300 disabled:opacity-60"
+            className="w-full bg-pink-500 text-white py-2 rounded-lg"
           >
             {loading ? "Saving..." : "Save Profile"}
           </button>
         </form>
 
-        {/* Password Button */}
         <button
           onClick={() => setShowPasswordModal(true)}
-          className="w-full mt-4 border-2 border-pink-300 text-pink-600 rounded-xl py-2 font-semibold hover:bg-pink-50 transition-all duration-300"
+          className="w-full mt-4 border-2 border-pink-300 text-pink-600 rounded-lg py-2"
         >
           Change Password
         </button>
-
-        <p className="text-center text-gray-500 text-sm mt-6 italic">
-          “Freshly baked updates — made with love 💖”
-        </p>
       </div>
 
       {/* Password Modal */}
       {showPasswordModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-2xl font-bold text-pink-600 text-center mb-4">
-              Change Password 🔒
-            </h2>
-            <form onSubmit={handlePasswordUpdate} className="space-y-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold text-pink-600 mb-4">Change Password</h2>
+            <form onSubmit={handlePasswordUpdate} className="space-y-3">
               <input
-                type="password"
                 name="oldPassword"
+                placeholder="Current password"
+                type="password"
                 value={passwordData.oldPassword}
                 onChange={handlePasswordChange}
-                placeholder="Current password"
-                className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-pink-400 outline-none"
+                className="w-full border rounded-lg px-3 py-2"
                 required
               />
               <input
-                type="password"
                 name="newPassword"
+                placeholder="New password"
+                type="password"
                 value={passwordData.newPassword}
                 onChange={handlePasswordChange}
-                placeholder="New password"
-                className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-pink-400 outline-none"
+                className="w-full border rounded-lg px-3 py-2"
                 required
               />
               <input
-                type="password"
                 name="confirmPassword"
+                placeholder="Confirm new password"
+                type="password"
                 value={passwordData.confirmPassword}
                 onChange={handlePasswordChange}
-                placeholder="Confirm new password"
-                className="w-full border border-gray-300 rounded-xl px-4 py-2 focus:ring-2 focus:ring-pink-400 outline-none"
+                className="w-full border rounded-lg px-3 py-2"
                 required
               />
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowPasswordModal(false)}
-                  className="flex-1 border-2 border-gray-300 text-gray-600 rounded-xl py-2 font-semibold hover:bg-gray-50 transition-all"
-                >
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowPasswordModal(false)} className="flex-1 border rounded-lg px-3 py-2">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={passwordLoading}
-                  className="flex-1 bg-gradient-to-r from-pink-500 to-rose-400 text-white rounded-xl py-2 font-semibold hover:shadow-md transform hover:scale-[1.02] transition-all"
-                >
+                <button type="submit" disabled={passwordLoading} className="flex-1 bg-pink-500 text-white rounded-lg px-3 py-2">
                   {passwordLoading ? "Saving..." : "Save"}
                 </button>
               </div>
