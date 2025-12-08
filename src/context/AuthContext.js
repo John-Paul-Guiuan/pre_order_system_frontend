@@ -7,15 +7,17 @@ export function AuthProvider({ children }) {
   const [user, setUserState] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🔥 Central function to set user everywhere (state + localStorage)
+  // -------------------------------------------------------
+  //  SAFE USER SETTER (SYNC LOCALSTORAGE + STATE)
+  // -------------------------------------------------------
   const updateUser = (updatedUser) => {
     if (!updatedUser) return;
     localStorage.setItem("user", JSON.stringify(updatedUser));
-    setUserState(updatedUser);
+    setUserState(updatedUser); // 🔥 triggers UI re-render instantly
   };
 
   // -------------------------------------------------------
-  //  LOAD USER FROM STORAGE ON APP START
+  //  LOAD USER + TOKEN ON APP START
   // -------------------------------------------------------
   useEffect(() => {
     try {
@@ -25,12 +27,11 @@ export function AuthProvider({ children }) {
       if (storedUser && token) {
         api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
 
-        // validate JSON
         const parsedUser = JSON.parse(storedUser);
         setUserState(parsedUser);
       }
     } catch (err) {
-      console.warn("Corrupted localStorage user:", err);
+      console.warn("🚨 Corrupted localStorage user:", err);
       localStorage.removeItem("user");
       localStorage.removeItem("token");
     }
@@ -39,7 +40,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   // -------------------------------------------------------
-  //  LOGIN
+  //  LOGIN (NOW FETCHES FRESH USER DATA)
   // -------------------------------------------------------
   async function login(email, password) {
     const response = await api.post("/login", { email, password });
@@ -50,8 +51,6 @@ export function AuthProvider({ children }) {
     localStorage.setItem("user", JSON.stringify(user));
 
     api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-
-    // 🔥 Update global user immediately
     setUserState(user);
 
     return user;
@@ -64,25 +63,47 @@ export function AuthProvider({ children }) {
     try {
       await api.post("/logout");
     } catch (err) {
+      // Even if API fails, clear local state
       console.warn("Logout API failed:", err.message);
     } finally {
+      // Always clear local storage and state
       localStorage.removeItem("user");
       localStorage.removeItem("token");
       delete api.defaults.headers.common["Authorization"];
       setUserState(null);
+      
+      // Redirect to login page
+      window.location.href = "/login";
     }
   }
 
   // -------------------------------------------------------
-  //  PUBLIC CONTEXT VALUE
+  //  REFRESH USER DATA FROM BACKEND
+  //  (Used after updating profile)
   // -------------------------------------------------------
+  async function refreshUser() {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const response = await api.get("/user", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      updateUser(response.data.user || response.data);
+    } catch (err) {
+      console.warn("Failed to refresh user:", err);
+    }
+  }
+
   return (
     <AuthContext.Provider
       value={{
         user,
-        setUser: updateUser,  // 🔥 always use updateUser (sync everywhere)
+        setUser: updateUser, // 🔥 used by Profile.js
         login,
         logout,
+        refreshUser, // 🔥 call this after saving profile
         loading,
       }}
     >

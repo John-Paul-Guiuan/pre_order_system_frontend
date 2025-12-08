@@ -22,18 +22,26 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // AuthContext.login(email, password) should call API and set user/token
-      await login(form.email, form.password);
+      // login() returns the user object with role
+      const loggedInUser = await login(form.email, form.password);
 
-      toast.success("Welcome back! 👋");
-      navigate("/"); // go to Home (protected)
+      toast.success(`Welcome back, ${loggedInUser.name}! 🎉`);
+
+      // ⭐ ROLE-BASED REDIRECT ⭐
+      if (loggedInUser.role === "admin") {
+        navigate("/admin/dashboard");
+      } else {
+        navigate("/");
+      }
     } catch (err) {
       console.error("Login failed:", err);
-      // Try to extract backend message (if present)
-      const message =
+
+      let message =
         err?.response?.data?.message ||
-        err?.message ||
-        "Invalid credentials. Please try again.";
+        err?.response?.data?.errors
+          ? Object.values(err.response.data.errors).flat().join(", ")
+          : "Invalid credentials. Please try again.";
+
       setError(message);
       toast.error("Login failed ❌");
     } finally {
@@ -49,7 +57,9 @@ export default function Login() {
         </h1>
 
         {error && (
-          <p className="text-red-500 text-sm mb-3 text-center">{error}</p>
+          <p className="text-red-500 text-sm mb-3 text-center">
+            {error}
+          </p>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -61,6 +71,7 @@ export default function Login() {
               value={form.email}
               onChange={handleChange}
               required
+              autoFocus
               className="w-full border rounded-lg px-3 py-2 mt-1 focus:ring-2 focus:ring-pink-400 outline-none"
             />
           </div>
