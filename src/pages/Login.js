@@ -36,11 +36,17 @@ export default function Login() {
     } catch (err) {
       console.error("Login failed:", err);
 
-      let message =
-        err?.response?.data?.message ||
-        err?.response?.data?.errors
-          ? Object.values(err.response.data.errors).flat().join(", ")
-          : "Invalid credentials. Please try again.";
+      let message = "Invalid credentials. Please try again.";
+
+      if (err?.response?.data?.message) {
+        message = err.response.data.message;
+      } else if (err?.response?.data?.errors) {
+        const errors = err.response.data.errors;
+        if (errors && typeof errors === "object") {
+          const errorMessages = Object.values(errors).flat();
+          message = errorMessages.join(", ");
+        }
+      }
 
       setError(message);
       toast.error("Login failed ❌");
