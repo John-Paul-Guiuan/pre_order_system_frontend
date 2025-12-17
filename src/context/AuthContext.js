@@ -4,16 +4,32 @@ import api from "../api/api";
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [user, setUserState] = useState(null);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // -------------------------------------------------------
+  //  ROLE NORMALIZER (ENSURES consistent customer/admin)
+  // -------------------------------------------------------
+  const normalizeUser = (rawUser) => {
+    if (!rawUser) return null;
+    const rawRole =
+      rawUser.role ||
+      rawUser.user_role ||
+      rawUser.role_name ||
+      rawUser.userType ||
+      "";
+    const normalizedRole = (rawRole || "").toLowerCase() === "admin" ? "admin" : "customer";
+    return { ...rawUser, role: normalizedRole };
+  };
 
   // -------------------------------------------------------
   //  SAFE USER SETTER (SYNC LOCALSTORAGE + STATE)
   // -------------------------------------------------------
   const updateUser = (updatedUser) => {
-    if (!updatedUser) return;
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    setUserState(updatedUser); // 🔥 triggers UI re-render instantly
+    const normalized = normalizeUser(updatedUser);
+    if (!normalized) return;
+    localStorage.setItem("user", JSON.stringify(normalized));
+    setUser(normalized); // 🔥 triggers UI re-render instantly
   };
 
   // -------------------------------------------------------
@@ -31,7 +47,7 @@ export function AuthProvider({ children }) {
           // Validate token against backend to avoid stale sessions
           try {
             const res = await api.get("/user");
-            const freshUser = res.data.user || res.data;
+            const freshUser = normalizeUser(res.data.user || res.data);
             if (freshUser) {
               updateUser(freshUser);
             } else {
@@ -39,7 +55,7 @@ export function AuthProvider({ children }) {
             }
           } catch (err) {
             // If backend is down (500) keep the cached user so the UI can still render
-            const parsedUser = JSON.parse(storedUser);
+            const parsedUser = normalizeUser(JSON.parse(storedUser));
             const status = err?.response?.status;
             console.warn("Token validation failed:", status, err?.message);
 
@@ -48,10 +64,10 @@ export function AuthProvider({ children }) {
               localStorage.removeItem("user");
               localStorage.removeItem("token");
               delete api.defaults.headers.common["Authorization"];
-              setUserState(null);
+              setUser(null);
             } else {
               // Keep cached user for non-auth errors (e.g., 500)
-              setUserState(parsedUser);
+              setUser(parsedUser);
             }
           }
         }
@@ -73,15 +89,33 @@ export function AuthProvider({ children }) {
   async function login(email, password) {
     const response = await api.post("/login", { email, password });
 
-    const { user, token } = response.data;
+    const userData = normalizeUser(response.data.user || response.data.data);
+    const token = response.data.token;
 
+    console.log("Login response:", {
+      user: userData,
+      token: token,
+      role: userData?.role,
+    });
+
+    if (!userData || !token) {
+      throw new Error("Invalid login response: missing user or token");
+    }
+
+    // Ensure role is present
+    if (!userData?.role) {
+      console.warn("⚠️ Warning: User role not provided in login response");
+    }
+
+    // Store in localStorage
+    localStorage.setItem("user", JSON.stringify(userData));
     localStorage.setItem("token", token);
-    localStorage.setItem("user", JSON.stringify(user));
 
-    api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-    setUserState(user);
+    // Update state
+    setUser(userData);
 
-    return user;
+    console.log("✅ Login successful. User role:", userData.role);
+    return userData;
   }
 
   // -------------------------------------------------------
@@ -91,17 +125,12 @@ export function AuthProvider({ children }) {
     try {
       await api.post("/logout");
     } catch (err) {
-      // Even if API fails, clear local state
-      console.warn("Logout API failed:", err.message);
+      console.error("Logout API call failed:", err);
     } finally {
-      // Always clear local storage and state
       localStorage.removeItem("user");
       localStorage.removeItem("token");
-      delete api.defaults.headers.common["Authorization"];
-      setUserState(null);
-
-      // Redirect to login page
-      window.location.href = "/login";
+      setUser(null);
+      console.log("✅ Logged out successfully");
     }
   }
 

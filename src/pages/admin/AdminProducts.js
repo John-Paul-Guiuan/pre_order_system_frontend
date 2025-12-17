@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import { useSidebar } from "../../context/SidebarContext";
 
 export default function ProductManagement() {
-  const { collapsed } = useSidebar();
+  const { collapsed, toggle } = useSidebar();
   const [form, setForm] = useState({
     name: "",
     category_id: "",
@@ -172,10 +172,10 @@ export default function ProductManagement() {
 
       <div
         className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${
-          collapsed ? "lg:ml-16 ml-0" : "lg:ml-64 ml-0"
+          collapsed ? "ml-0" : "lg:ml-64 ml-0"
         }`}
       >
-        <AdminTopbar />
+        <AdminTopbar toggleSidebar={toggle} isSidebarOpen={!collapsed} />
 
         <div className="flex-1 p-6 overflow-y-auto">
           <h1 className="text-3xl font-bold text-[#5A381E] mb-6">

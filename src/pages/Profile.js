@@ -161,7 +161,7 @@ export default function Profile() {
       );
 
       console.log("Profile update response:", res.data);
-      toast.success("✅ Profile updated successfully!");
+      toast.success("Profile updated successfully!");
 
       // Update global user object
       if (res?.data?.user) {
@@ -235,7 +235,7 @@ export default function Profile() {
   };
 
   return (
-    <div className="min-h-screen bg-pink-50 py-8 px-4">
+    <div className="min-h-screen bg-pink-50 py-20 px-4">
       <div className="bg-white shadow-lg rounded-2xl p-6 sm:p-8 w-full max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-pink-600 mb-6 text-center">My Profile</h1>
 

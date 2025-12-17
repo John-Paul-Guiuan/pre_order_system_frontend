@@ -1,6 +1,13 @@
 // src/App.js
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  useLocation,
+} from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -15,8 +22,7 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
-import { CartProvider } from "./context/CartContext";
-import { AuthProvider, useAuth } from "./context/AuthContext";
+import { useAuth } from "./context/AuthContext";
 import { SidebarProvider } from "./context/SidebarContext";
 
 // Loading screen component
@@ -31,66 +37,43 @@ function LoadingScreen() {
   );
 }
 
-// ✅ Route requiring login
+// ProtectedRoute wrapper
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen />;
-  return user ? children : <Navigate to="/login" replace />;
+  if (loading) return null; // or a loading spinner
+  if (!user) return <Navigate to="/login" replace />;
+  return children ? children : <Outlet />;
 }
 
-// ✅ Prevent logged-in users from opening login/register
-function AuthOnlyRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen />;
-  if (!user) return children;
-  // Redirect based on role
-  if (user.role === "admin") {
-    return <Navigate to="/admin/dashboard" replace />;
-  }
-  return <Navigate to="/" replace />;
+// PublicRoute wrapper (prevents logged-in users from seeing login/register)
+function PublicRoute({ children }) {
+  return children ? children : <Outlet />;
 }
 
-// 🚨 NEW: Admin-only route
+// Admin-only route
 function AdminRoute({ children }) {
   const { user, loading } = useAuth();
-
-  // Still loading user info? Show loading screen
-  if (loading) return <LoadingScreen />;
-
-  // Not logged in
-  if (!user) return <Navigate to="/login" replace />;
-
-  // No role field OR not admin
-  if (!user.role || user.role !== "admin") {
-    return <Navigate to="/" replace />;
+  if (loading) return null;
+  if (!user || user.role !== "admin") {
+    console.warn("❌ User is not admin. Redirecting to login.");
+    return <Navigate to="/login" replace />;
   }
-
-  return children;
+  return children ? children : <Outlet />;
 }
 
+// Customer-only route (case-insensitive role check)
+function CustomerRoute({ children }) {
+  const { user, loading } = useAuth();
+  const role = (user?.role || "").toLowerCase();
+  if (loading) return null;
+  if (!user || role !== "customer") {
+    console.warn("❌ User is not customer. Redirecting to login.");
+    return <Navigate to="/login" replace />;
+  }
+  return children ? children : <Outlet />;
+}
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <CartProvider>
-        <Router>
-          <SidebarProvider>
-            <AppContent />
-          </SidebarProvider>
-          <Toaster
-            position="top-center"
-            toastOptions={{
-              duration: 2500,
-              style: { background: "#f472b6", color: "#fff", borderRadius: "10px" },
-            }}
-          />
-        </Router>
-      </CartProvider>
-    </AuthProvider>
-  );
-}
-
-function AppContent() {
   const { user, loading } = useAuth();
 
   // Show loading screen while checking authentication
@@ -99,123 +82,76 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-pink-50">
+    <Router>
+      <SidebarProvider>
+        <AppContent />
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            duration: 2500,
+            style: { background: "#f472b6", color: "#fff", borderRadius: "10px" },
+          }}
+        />
+      </SidebarProvider>
+    </Router>
+  );
+}
 
-      {/* Show navbar only for regular users */}
-      {user && user.role === "user" && <Navbar />}
+// Main app content that lives inside the Router (so it can use useLocation)
+function AppContent() {
+  const { user } = useAuth();
+  const location = useLocation();
+
+  const role = (user?.role || "").toLowerCase();
+
+  // Hide navbar on auth pages and for admin users
+  const isAuthPage =
+    location.pathname === "/login" || location.pathname === "/register";
+  const showCustomerNavbar = user && role === "customer" && !isAuthPage;
+
+  console.log("Current user role in App:", user?.role, "normalized:", role, "path:", location.pathname);
+
+  return (
+    <>
+      {showCustomerNavbar && <Navbar />}
 
       <Routes>
+        {/* Public routes */}
+        <Route element={<PublicRoute />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+        </Route>
 
-        {/* 🛑 ADMIN ROUTES (protected) */}
-        <Route
-          path="/admin/dashboard"
-          element={
-            <AdminRoute>
-              <AdminDashboard />
-            </AdminRoute>
-          }
-        />
+        {/* Admin routes */}
+        <Route element={<AdminRoute />}>
+          <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          <Route path="/admin/products" element={<AdminProducts />} />
+        </Route>
 
-        <Route
-          path="/admin/products"
-          element={
-            <AdminRoute>
-              <AdminProducts />
-            </AdminRoute>
-          }
-        />
+        {/* Customer routes */}
+        <Route element={<CustomerRoute />}>
+          <Route path="/" element={<Home />} />
+          <Route path="/home" element={<Home />} />
+          <Route path="/products" element={<Products />} />
+          <Route path="/checkout" element={<Checkout />} />
+          <Route path="/orders" element={<Orders />} />
+          <Route path="/notifications" element={<Notifications />} />
+          <Route path="/profile" element={<Profile />} />
+        </Route>
 
-        {/* 👤 Auth routes */}
-        <Route
-          path="/login"
-          element={
-            <AuthOnlyRoute>
-              <Login />
-            </AuthOnlyRoute>
-          }
-        />
-
-        <Route
-          path="/register"
-          element={
-            <AuthOnlyRoute>
-              <Register />
-            </AuthOnlyRoute>
-          }
-        />
-
-        {/* 👨‍🍳 USER ROUTES (protected) */}
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Home />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/products"
-          element={
-            <ProtectedRoute>
-              <Products />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/checkout"
-          element={
-            <ProtectedRoute>
-              <Checkout />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/orders"
-          element={
-            <ProtectedRoute>
-              <Orders />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/notifications"
-          element={
-            <ProtectedRoute>
-              <Notifications />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Default fallback */}
+        {/* Fallback: redirect all unknown routes */}
         <Route
           path="*"
           element={
-            <Navigate
-              to={
-                user
-                  ? user.role === "admin"
-                    ? "/admin/dashboard"
-                    : "/"
-                  : "/login"
-              }
-              replace
-            />
+            user
+              ? user.role === "admin"
+                ? <Navigate to="/admin/dashboard" replace />
+                : <Navigate to="/" replace />
+              : <Navigate to="/login" replace />
           }
         />
       </Routes>
-    </div>
+    </>
   );
 }
+

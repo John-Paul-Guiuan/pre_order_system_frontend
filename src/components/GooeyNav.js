@@ -1,33 +1,19 @@
 import { useRef, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import "../styles/GooeyEffects.css";
 
-const GooeyNav = ({
-  items,
+// Reusable gooey effect hook that can be used by any navigation / menu
+export const useGooeyEffect = ({
   animationTime = 600,
   particleCount = 15,
   particleDistances = [60, 10],
   particleR = 80,
   timeVariance = 300,
   colors = [1, 2, 3, 4],
-}) => {
+} = {}) => {
   const containerRef = useRef(null);
-  const navRef = useRef(null);
   const filterRef = useRef(null);
   const textRef = useRef(null);
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  // ✅ Keep highlight synced with current route
-  useEffect(() => {
-    const currentIndex = items.findIndex((item) => item.href === location.pathname);
-    if (currentIndex !== -1) {
-      setActiveIndex(currentIndex);
-      const li = navRef.current?.querySelectorAll("li")[currentIndex];
-      if (li) updateEffectPosition(li);
-    }
-  }, [location.pathname, items]);
 
   // Small helper math for animation
   const noise = (n = 1) => n / 2 - Math.random() * n;
@@ -50,6 +36,7 @@ const GooeyNav = ({
   };
 
   const makeParticles = (element) => {
+    if (!element) return;
     const d = particleDistances;
     const r = particleR;
     const bubbleTime = animationTime * 2 + timeVariance;
@@ -84,8 +71,9 @@ const GooeyNav = ({
     }
   };
 
-  const updateEffectPosition = (element) => {
+  const updateEffectPosition = (element, labelText) => {
     if (!containerRef.current || !filterRef.current || !textRef.current) return;
+    if (!element) return;
     const containerRect = containerRef.current.getBoundingClientRect();
     const pos = element.getBoundingClientRect();
     const styles = {
@@ -96,121 +84,109 @@ const GooeyNav = ({
     };
     Object.assign(filterRef.current.style, styles);
     Object.assign(textRef.current.style, styles);
-    textRef.current.innerText = element.innerText;
+    textRef.current.innerText =
+      typeof labelText === "string" && labelText.length
+        ? labelText
+        : element.innerText;
   };
 
-  const handleClick = (e, index, href) => {
-    const liEl = e.currentTarget;
-    if (activeIndex === index) return;
-    setActiveIndex(index);
-    updateEffectPosition(liEl);
-    navigate(href);
+  // Public API for consumers
+  const moveToElement = (element, labelText) => {
+    updateEffectPosition(element, labelText);
+    if (textRef.current) {
+      textRef.current.classList.add("active");
+    }
+  };
+
+  const triggerAtElement = (element, labelText) => {
+    if (!element) return;
+
+    updateEffectPosition(element, labelText);
 
     if (filterRef.current) {
       const particles = filterRef.current.querySelectorAll(".particle");
       particles.forEach((p) => filterRef.current.removeChild(p));
     }
+
     if (textRef.current) {
       textRef.current.classList.remove("active");
+      // force reflow to restart CSS animation
+      // eslint-disable-next-line no-unused-expressions
       void textRef.current.offsetWidth;
       textRef.current.classList.add("active");
     }
-    if (filterRef.current) makeParticles(filterRef.current);
+
+    if (filterRef.current) {
+      makeParticles(filterRef.current);
+    }
+  };
+
+  return {
+    containerRef,
+    filterRef,
+    textRef,
+    moveToElement,
+    triggerAtElement,
+  };
+};
+
+const GooeyNav = ({
+  items,
+  animationTime = 600,
+  particleCount = 15,
+  particleDistances = [60, 10],
+  particleR = 80,
+  timeVariance = 300,
+  colors = [1, 2, 3, 4],
+}) => {
+  const navRef = useRef(null);
+  const {
+    containerRef,
+    filterRef,
+    textRef,
+    moveToElement,
+    triggerAtElement,
+  } = useGooeyEffect({
+    animationTime,
+    particleCount,
+    particleDistances,
+    particleR,
+    timeVariance,
+    colors,
+  });
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // ✅ Keep highlight synced with current route
+  useEffect(() => {
+    const currentIndex = items.findIndex((item) => item.href === location.pathname);
+    if (currentIndex !== -1) {
+      setActiveIndex(currentIndex);
+      const li = navRef.current?.querySelectorAll("li")[currentIndex];
+      if (li) moveToElement(li, items[currentIndex]?.label);
+    }
+  }, [location.pathname, items]);
+
+  const handleClick = (e, index, href) => {
+    const liEl = e.currentTarget;
+    if (activeIndex === index) return;
+    setActiveIndex(index);
+    triggerAtElement(liEl, items[index]?.label);
+    navigate(href);
   };
 
   useEffect(() => {
     if (!navRef.current || !containerRef.current) return;
     const activeLi = navRef.current.querySelectorAll("li")[activeIndex];
     if (activeLi) {
-      updateEffectPosition(activeLi);
+      moveToElement(activeLi, items[activeIndex]?.label);
       textRef.current?.classList.add("active");
     }
   }, [activeIndex]);
 
   return (
-    <>
-      <style>
-        {`
-        .effect {
-          position: absolute;
-          pointer-events: none;
-          display: grid;
-          place-items: center;
-          z-index: 0;
-          transition: all 0.3s ease;
-        }
-
-        .effect.text {
-          color: white;
-          transition: color 0.3s ease;
-        }
-
-        .effect.text.active {
-          color: black;
-        }
-
-        .effect.filter {
-          border-radius: 9999px;
-          background: white;
-          box-shadow: 0 0 10px rgba(255, 105, 180, 0.6),
-                      0 0 20px rgba(255, 182, 193, 0.5);
-          transition: all 0.3s ease;
-        }
-
-        li.active {
-          color: #d63384;
-          font-weight: 600;
-          text-shadow: 0 0 4px rgba(255, 192, 203, 0.7);
-        }
-
-        li {
-          position: relative;
-          z-index: 2;
-        }
-
-        .particle,
-        .point {
-          display: block;
-          opacity: 0;
-          width: 12px;
-          height: 12px;
-          border-radius: 9999px;
-          transform-origin: center;
-        }
-
-        .particle {
-          --time: 5s;
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          animation: particle calc(var(--time)) ease 1 -350ms;
-        }
-
-        .point {
-          background: var(--color);
-          opacity: 1;
-          animation: point calc(var(--time)) ease 1 -350ms;
-        }
-
-        @keyframes particle {
-          0% {
-            transform: rotate(0deg) translate(calc(var(--start-x)), calc(var(--start-y)));
-            opacity: 1;
-          }
-          100% {
-            transform: rotate(calc(var(--rotate))) translate(calc(var(--end-x)), calc(var(--end-y)));
-            opacity: 0;
-          }
-        }
-
-        @keyframes point {
-          0% { transform: scale(0); opacity: 0; }
-          50% { transform: scale(var(--scale)); opacity: 1; }
-          100% { transform: scale(0); opacity: 0; }
-        }
-      `}
-      </style>
-
       <div className="relative flex justify-center" ref={containerRef}>
         <nav className="flex relative">
           <ul
@@ -237,7 +213,6 @@ const GooeyNav = ({
         <span className="effect filter" ref={filterRef}></span>
         <span className="effect text" ref={textRef}></span>
       </div>
-    </>
   );
 };
 

@@ -4,6 +4,8 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 import logo from "../assets/logo.png";
+import Home from "./Home";
+import AdminDashboard from "./admin/AdminDashboard";
 
 export default function Login() {
   const { login } = useAuth();
@@ -23,16 +25,21 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // login() returns the user object with role
       const loggedInUser = await login(form.email, form.password);
 
+      console.log("✅ Login successful. User:", loggedInUser);
       toast.success(`Welcome back, ${loggedInUser.name}! 🎉`);
 
-      // ⭐ ROLE-BASED REDIRECT ⭐
+      // Role-based redirect
       if (loggedInUser.role === "admin") {
-        navigate("/admin/dashboard");
+        console.log("🔐 Redirecting to admin dashboard...");
+        navigate("/admin/dashboard", { replace: true });
+      } else if (loggedInUser.role === "customer") {
+        console.log("🛍️ Redirecting to customer home (products)...");
+        navigate("/", { replace: true });
       } else {
-        navigate("/");
+        console.warn("⚠️ Unknown role:", loggedInUser.role);
+        navigate("/", { replace: true });
       }
     } catch (err) {
       console.error("Login failed:", err);

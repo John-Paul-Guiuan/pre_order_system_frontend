@@ -13,7 +13,7 @@ import { getImageUrl } from "../../utils/imageUrl";
 export default function AdminDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { collapsed } = useSidebar();
+  const { collapsed, toggle } = useSidebar();
 
   useEffect(() => {
     if (!user) return;
@@ -283,11 +283,11 @@ export default function AdminDashboard() {
       {/* Right content */}
       <div
         className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${
-          collapsed ? "lg:ml-16 ml-0" : "lg:ml-64 ml-0"
+          collapsed ? "ml-0" : "lg:ml-64 ml-0"
         }`}
       >
         {/* TOPBAR – FLUSH TO TOP */}
-        <AdminTopbar />
+        <AdminTopbar toggleSidebar={toggle} isSidebarOpen={!collapsed} />
 
         {/* PAGE CONTENT - Scrollable */}
         <div className="flex-1 p-6 overflow-y-auto">
